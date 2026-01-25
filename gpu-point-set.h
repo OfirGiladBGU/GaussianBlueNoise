@@ -274,6 +274,8 @@ void GPUPointSet::saveEPS (const char *fileName) {
 }
 
 void GPUPointSet::savePNG (const char *fileName) {
+    // Original cairo code (commented out - cairo not available on this system):
+    /*
     cairo_surface_t *surface = cairo_image_surface_create(
         CAIRO_FORMAT_RGB24, W, H
     );
@@ -296,9 +298,13 @@ void GPUPointSet::savePNG (const char *fileName) {
     cairo_destroy (cr);
     cairo_surface_write_to_png (surface, fileName);
     cairo_surface_destroy (surface);
+    */
+    printf("PNG rendering skipped (cairo not available)\n");
 }
 
 void GPUPointSet::savePDF (const char *fileName) {
+    // Original cairo code (commented out - cairo not available on this system):
+    /*
     cairo_surface_t *surface = cairo_pdf_surface_create(
         fileName, 4000, 4000
     );
@@ -319,6 +325,8 @@ void GPUPointSet::savePDF (const char *fileName) {
     cairo_show_page(cr);
     cairo_destroy (cr);
     cairo_surface_destroy (surface);
+    */
+    printf("PDF rendering skipped (cairo not available)\n");
 }
 
 

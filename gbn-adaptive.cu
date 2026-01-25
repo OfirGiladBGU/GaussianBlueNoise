@@ -8,7 +8,7 @@
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
-#include "getopt/getopt.h"
+#include <unistd.h>
 #include <cmath>
 #include <string>
 #include <signal.h>
