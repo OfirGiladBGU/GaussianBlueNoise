@@ -8,7 +8,11 @@
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
+#ifdef _WIN32
+#include "getopt/getopt.h"
+#else
+#include <getopt.h>
+#endif
 #include <cmath>
 #include <string>
 #include <signal.h>

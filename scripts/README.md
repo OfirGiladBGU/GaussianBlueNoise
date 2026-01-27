@@ -1,178 +1,170 @@
-# Analysis and Comparison Scripts
+# GBN Scripts Documentation
 
-This folder contains scripts used to analyze and validate the C++ Gaussian Blue Noise implementation.
+**Updated:** January 27, 2026  
+**Status:** ✅ Working with gbn-adaptive-linux (CUDA compiled)
 
-## Scripts Overview
+---
 
-### Comparison Scripts
+## 📁 Main Scripts (USE THESE)
 
-#### `compare_cpp_results.py`
-**Purpose:** Compare C++ GBN output vs Rougier's reference stippling
+### 1. `generate_stippling.py` ⭐ Main Tool
+
+Generate stippling output from a grayscale density image.
 
 **What it does:**
-- Loads C++ GBN point sets from txt files
-- Loads Rougier reference images
-- Computes density correlation metrics
-- Creates side-by-side comparison visualizations
+1. Converts input PNG to PGM format (ASCII P2) if needed
+2. Runs `gbn-adaptive-linux` on the PGM file
+3. Saves point coordinates to text file
+4. Renders stippling visualization to PNG
 
 **Usage:**
 ```bash
-python compare_cpp_results.py
+# Basic usage (outputs to ../output/)
+python generate_stippling.py <input_image.png>
+
+# Custom parameters
+python generate_stippling.py <input_image.png> --points 5000 --iters 500
+
+# Custom output name
+python generate_stippling.py <input_image.png> --name my_output
+
+# Custom point size for rendering
+python generate_stippling.py <input_image.png> --point-size 2
 ```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--points N` | 10000 | Number of points to generate |
+| `--iters N` | 1000 | Optimization iterations |
+| `--output DIR` | ../output | Output directory |
+| `--name NAME` | input stem | Base name for output files |
+| `--point-size S` | 1 | Point size for rendering |
 
 **Outputs:**
-- `out/comparison_cpp_vs_rougier_img1.png`
-- `out/comparison_cpp_vs_rougier_img2.png`
-- `out/comparison_cpp_vs_rougier_img3.png`
-- Console: Correlation statistics
-
-**Key Finding:** Confirmed GBN produces uniform distributions (correlation ~0.0) instead of density-following distributions (target: >0.6)
+- `<output>/<name>.txt` - Point coordinates (normalized 0-1)
+- `<output>/<name>.png` - Rendered stippling image
 
 ---
 
-#### `compare_taksim.py`
-**Purpose:** Validate C++ build against official taksim-circle reference
+### 2. `compare_stippling.py` 📊 Comparison Tool
+
+Create side-by-side comparison images.
 
 **What it does:**
-- Compares reference taksim-circle.txt with our output
-- Computes minimum distance statistics
-- Creates visual comparison
-- Validates compilation correctness
+1. Loads input density image (PNG or PGM)
+2. Loads ground truth stippling (optional)
+3. Loads GBN output (points .txt or rendered .png)
+4. Creates a side-by-side comparison figure
 
 **Usage:**
 ```bash
-# First generate output for taksim-circle
-./gbn-adaptive taksim-circle.pgm 10000 100 out/taksim_result.txt
+# Two-way comparison (input vs GBN)
+python compare_stippling.py density.png gbn_output.txt
 
-# Then compare
-python compare_taksim.py
+# Three-way comparison (input vs GT vs GBN)
+python compare_stippling.py density.png gbn_output.txt --gt reference.png
+
+# Custom output path
+python compare_stippling.py density.png gbn_output.txt --output my_comparison.png
 ```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--gt PATH` | None | Ground truth stippling image |
+| `--output PATH` | auto | Output comparison image path |
+| `--title TEXT` | auto | Title for the comparison |
+| `--point-size S` | 1 | Point size if rendering from txt |
 
 **Outputs:**
-- `out/taksim_comparison.png`
-- Console: Min distance statistics
-
-**Key Finding:** Build is correct. Consistently produces min_dist ~0.004 regardless of parameters (iterations, sigma, init mode).
+- `comparison_<name>.png` - Side-by-side comparison image
 
 ---
 
-#### `check_capacity_constraint.py`
-**Purpose:** Quantitative validation of density constraint following
+## 📁 Utility Scripts (REFERENCE)
 
-**What it does:**
-- Divides image into 32×32 grid
-- Counts points per cell
-- Measures correlation with source density
-- Calculates high-density hit rate
-- Creates scatter plots
+### `png_to_pgm.py`
+Convert PNG images to ASCII PGM format for GBN input.
 
-**Usage:**
-```bash
-python check_capacity_constraint.py
-```
-
-**Metrics computed:**
-- **Correlation:** Pearson correlation between density and point count
-  - Good stippling: >0.6
-  - Random: ~0.0
-  - C++ GBN result: -0.018 to 0.102
-- **High-density hit rate:** % of points in darkest 25% of regions
-  - Good stippling: >70%
-  - Random: ~25%
-  - C++ GBN result: 42-55%
-
-**Key Finding:** Proved C++ GBN does NOT follow density constraints. Points are uniformly distributed regardless of image darkness.
-
----
-
-### Utility Scripts
-
-#### `png_to_pgm.py`
-**Purpose:** Convert PNG images to ASCII PGM format for C++ GBN
-
-**What it does:**
-- Loads PNG and converts to grayscale
-- Writes ASCII PGM (P2) format
-- Compatible with gbn-adaptive binary
-
-**Usage:**
 ```bash
 python png_to_pgm.py input.png output.pgm
 ```
 
-**Note:** This functionality is now integrated into `Python/generate_cpp_gbn.py`. Kept as standalone utility for manual conversions.
+*Note: This functionality is integrated into `generate_stippling.py`.*
 
 ---
 
-#### `render_single_pixel.py`
-**Purpose:** Render points as single pixels (Rougier-style visualization)
+### Legacy Scripts (ARCHIVED)
 
-**What it does:**
-- Loads point coordinates from txt files
-- Creates white canvas
-- Draws single black pixels at point locations
-- Reports coverage statistics
+The following scripts were used for previous analysis and may need updating:
 
-**Usage:**
+- `analyze_comparison.py` - Statistical analysis
+- `check_capacity_constraint.py` - Density correlation metrics
+- `compare_cpp_results.py` - GBN vs Rougier comparison (old paths)
+- `compare_taksim.py` - Build validation
+- `render_single_pixel.py` - Single-pixel renderer
+
+---
+
+## 🚀 Quick Start Examples
+
+### Generate stippling for a single image:
 ```bash
-python render_single_pixel.py
+cd /groups/asharf_group/ofirgila/GaussianBlueNoise/scripts
+conda activate sd
+python generate_stippling.py ../data_grads_v3_sample/source/gen_gray_Wave_999930824_5143.png
 ```
-(Hardcoded to process 3 sample images)
 
-**Why it matters:** Unlike cairo rendering (circles), single-pixel rendering enables accurate density correlation measurements and fair comparison with Rougier's results.
+### Generate and compare with ground truth:
+```bash
+# Generate
+python generate_stippling.py ../data_grads_v3_sample/source/gen_gray_Wave_999930824_5143.png --name wave
+
+# Compare
+python compare_stippling.py \
+    ../data_grads_v3_sample/source/gen_gray_Wave_999930824_5143.png \
+    ../output/wave.txt \
+    --gt ../data_grads_v3_sample/target/gen_gray_Wave_999930824_5143.png
+```
+
+### Batch process multiple images:
+```bash
+for img in ../data_grads_v3_sample/source/*.png; do
+    python generate_stippling.py "$img" --points 10000 --iters 1000
+done
+```
 
 ---
 
-## Analysis Workflow
+## 📋 Requirements
 
-The typical analysis workflow used these scripts:
+- **gbn-adaptive-linux** binary compiled at repo root
+- **CUDA-enabled GPU** available
+- **sd conda environment** with:
+  - numpy
+  - matplotlib
+  - PIL (Pillow)
+  - scipy (for analysis scripts)
 
+### Compilation (if needed):
 ```bash
-# 1. Generate C++ GBN output
+ssh <compute-node>
+conda activate sd
 cd /groups/asharf_group/ofirgila/GaussianBlueNoise
-python Python/generate_cpp_gbn.py data_grads_v3_sample/source/image.png \
-    --points 5000 --iters 100 --render
-
-# 2. Compare with references
-python scripts/compare_cpp_results.py
-
-# 3. Validate build correctness
-./gbn-adaptive taksim-circle.pgm 10000 100 out/taksim_result.txt
-python scripts/compare_taksim.py
-
-# 4. Check capacity constraint
-python scripts/check_capacity_constraint.py
+nvcc -arch=sm_89 -Xcompiler "-O3" \
+    -I$CONDA_PREFIX/include -L$CONDA_PREFIX/lib \
+    -o gbn-adaptive-linux gbn-adaptive.cu -lcairo
 ```
 
 ---
 
-## Key Results Summary
+## 📊 Performance Reference
 
-| Script | Metric | Expected | Actual | Status |
-|--------|--------|----------|--------|--------|
-| compare_cpp_results | Correlation | >0.6 | -0.018 to 0.102 | ❌ Failed |
-| compare_taksim | Min distance | ~0.007 | ~0.004 | ✅ Consistent |
-| check_capacity_constraint | Hit rate | >70% | 42-55% | ❌ Near random |
+| Points | Iterations | Time | Notes |
+|--------|------------|------|-------|
+| 10000 | 1000 | ~8s | Full quality |
+| 10000 | 100 | ~0.9s | Fast, good quality |
+| 5000 | 100 | ~0.3s | Quick preview |
 
-**Conclusion:** GBN produces excellent blue-noise spacing but does not follow density constraints.
-
----
-
-## Dependencies
-
-```bash
-conda activate sd  # or your Python environment
-pip install numpy pillow scipy matplotlib
-```
-
----
-
-## For More Information
-
-- **FINAL_ANALYSIS.md** - Comprehensive project summary
-- **SUMMARY_FOR_PRO.md** - Detailed parameter testing results
-- **../Python/README.md** - Main utilities documentation (if exists)
-
----
-
-**Last Updated:** January 26, 2026
+*Tested on RTX 6000 (compute 8.9)*
