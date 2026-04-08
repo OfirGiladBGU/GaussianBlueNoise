@@ -115,6 +115,13 @@ def run_gbn(density: np.ndarray, out_txt: Path, n_points: int, n_iters: int) -> 
         raise RuntimeError(f"GBN binary failed:\n{proc.stderr}")
 
 
+def quantize_gray(gray: np.ndarray, n_colors: int) -> np.ndarray:
+    """Reduce gray image to n_colors uniform intensity levels."""
+    levels = np.linspace(0, 255, n_colors, dtype=np.float32)
+    indices = np.argmin(np.abs(gray.astype(np.float32)[..., None] - levels), axis=-1)
+    return levels[indices].astype(np.uint8)
+
+
 def prepare_source_gray(
     input_image: Path,
     image_size: tuple[int, int] | None,
@@ -146,6 +153,8 @@ def process_one(
     threshold: int,
     apply_preprocess: bool,
     disable_bg_suppression: bool,
+    apply_quantization: bool,
+    quantization_count: int,
     n_points: int,
     n_iters: int,
     point_size: float,
@@ -165,6 +174,9 @@ def process_one(
         disable_bg_suppression=disable_bg_suppression,
         invert_image=invert_image,
     )
+
+    if apply_quantization:
+        source_gray = quantize_gray(source_gray, quantization_count)
 
     source_out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(source_out), source_gray)
@@ -194,43 +206,47 @@ def process_one(
 
 
 def main() -> int:
-    # Configuration defaults (edit these quickly, like the WVS script style)
-    default_data_path = Path("/groups/asharf_group/ofirgila/ControlNet/training/FiveK_dataset_nzk")  # Dataset root that contains original/source/target
-    default_n = 1  # Number of images to process; -1 = all
-    # default_n = -1  # Number of images to process; -1 = all
-    
-    # default_n_points = 4096  # GBN point count
-    default_n_points = 1024  # GBN point count
-    default_n_iters = 1000  # GBN optimization iterations
-    default_threshold = 255  # Density cap before stippling; 255 means no cap
-    default_image_size = None  # (W, H) or None to keep original size
-    default_invert_image = False  # Invert source image pixels
-    default_invert_density = False  # Invert density seen by GBN
-    default_point_size = 1.0  # Rendered stipple point size in pixels
-    default_apply_preprocess = True  # Apply preprocessing pipeline before stippling
-    default_disable_bg_suppression = False  # Disable bg suppression inside preprocessing
-    default_coord_mode = "auto"  # One of: auto, unit, aspect
-    default_overwrite = True  # Overwrite existing source/target files
-    default_keep_txt = False  # Keep GBN txt files (default off for dataset generation)
+    # ── Configuration (edit values here) ──────────────────────────────────────
+    data_path          = Path("/groups/asharf_group/ofirgila/ControlNet/training/FiveK_dataset_nzk_512x512")  # Dataset root that contains original/source/target
+    n                  = -1             # Number of images to process; -1 = all
+    n_points           = 1024           # GBN point count
+    n_iters            = 1000           # GBN optimization iterations
+    threshold          = 255            # Density cap before stippling; 255 means no cap
+    image_size         = (512, 512)     # (W, H) or None to keep original size
+    invert_image       = False          # Invert source image pixels
+    invert_density     = False          # Invert density seen by GBN
+    point_size         = 1.0            # Rendered stipple point size in pixels
+    apply_preprocess   = True           # Apply preprocessing pipeline before stippling
+    disable_bg_suppression = False      # Disable bg suppression inside preprocessing
+    apply_quantization = False          # Quantize gray levels before stippling
+    quantization_count = 4              # Number of gray levels after quantization
+    coord_mode         = "auto"         # One of: auto, unit, aspect
+    overwrite          = True           # Overwrite existing source/target files
+    keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
+    # ──────────────────────────────────────────────────────────────────────────
 
     parser = argparse.ArgumentParser(
         description="Generate source/target stippling dataset with Gaussian Blue Noise",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--data_path", type=Path, default=default_data_path)
-    parser.add_argument("--N", type=int, default=default_n, help="-1 means all images")
-    parser.add_argument("--n_points", type=int, default=default_n_points)
-    parser.add_argument("--n_iters", type=int, default=default_n_iters)
-    parser.add_argument("--threshold", type=int, default=default_threshold)
-    parser.add_argument("--image_size", type=int, nargs=2, default=default_image_size, metavar=("W", "H"))
-    parser.add_argument("--invert_image", action=argparse.BooleanOptionalAction, default=default_invert_image)
-    parser.add_argument("--invert_density", action=argparse.BooleanOptionalAction, default=default_invert_density)
-    parser.add_argument("--point_size", type=float, default=default_point_size)
-    parser.add_argument("--apply_preprocess", action=argparse.BooleanOptionalAction, default=default_apply_preprocess)
-    parser.add_argument("--disable_bg_suppression", action=argparse.BooleanOptionalAction, default=default_disable_bg_suppression)
-    parser.add_argument("--coord_mode", type=str, default=default_coord_mode, choices=["auto", "unit", "aspect"])
-    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=default_overwrite)
-    parser.add_argument("--keep_txt", action=argparse.BooleanOptionalAction, default=default_keep_txt)
+    # fmt: off
+    parser.add_argument("--data_path",              type=Path,  default=data_path)
+    parser.add_argument("--n",                      type=int,   default=n,                  help="-1 means all images")
+    parser.add_argument("--n_points",               type=int,   default=n_points)
+    parser.add_argument("--n_iters",                type=int,   default=n_iters)
+    parser.add_argument("--threshold",              type=int,   default=threshold)
+    parser.add_argument("--image_size",             type=int,   default=image_size,         nargs=2, metavar=("W", "H"))
+    parser.add_argument("--invert_image",           action=argparse.BooleanOptionalAction,  default=invert_image)
+    parser.add_argument("--invert_density",         action=argparse.BooleanOptionalAction,  default=invert_density)
+    parser.add_argument("--point_size",             type=float, default=point_size)
+    parser.add_argument("--apply_preprocess",       action=argparse.BooleanOptionalAction,  default=apply_preprocess)
+    parser.add_argument("--disable_bg_suppression", action=argparse.BooleanOptionalAction,  default=disable_bg_suppression)
+    parser.add_argument("--apply_quantization",     action=argparse.BooleanOptionalAction,  default=apply_quantization)
+    parser.add_argument("--quantization_count",     type=int,   default=quantization_count)
+    parser.add_argument("--coord_mode",             type=str,   default=coord_mode,         choices=["auto", "unit", "aspect"])
+    parser.add_argument("--overwrite",              action=argparse.BooleanOptionalAction,  default=overwrite)
+    parser.add_argument("--keep_txt",               action=argparse.BooleanOptionalAction,  default=keep_txt)
+    # fmt: on
 
     args = parser.parse_args()
 
@@ -265,7 +281,7 @@ def main() -> int:
         print(f"No images found under: {original_dir}", file=sys.stderr)
         return 1
 
-    n = len(image_files) if args.N == -1 else min(args.N, len(image_files))
+    n = len(image_files) if args.n == -1 else min(args.n, len(image_files))
 
     print(f"Data path: {data_path}")
     print(f"Images found: {len(image_files)} | processing: {n}")
@@ -291,6 +307,8 @@ def main() -> int:
                 threshold=args.threshold,
                 apply_preprocess=args.apply_preprocess,
                 disable_bg_suppression=args.disable_bg_suppression,
+                apply_quantization=args.apply_quantization,
+                quantization_count=args.quantization_count,
                 n_points=args.n_points,
                 n_iters=args.n_iters,
                 point_size=args.point_size,
