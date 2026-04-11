@@ -4,3 +4,5 @@ data_*/
 out/
 code/
 output/
+__pycache__/
+logs*/

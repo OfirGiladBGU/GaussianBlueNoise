@@ -159,6 +159,12 @@ def points_to_data_t(points: np.ndarray, n_points: int) -> np.ndarray:
     """Build a local data_t tensor with expected shape (2, side, side).
 
     This keeps schema compatibility without importing any external repository code.
+
+    NOTE: GBN outputs points in mathematical convention (y=0=bottom). The ControlNet
+    training pipeline renders target images with render_stipple (which flips y to image
+    convention) and then extracts centroids as y=row/h (y=0=top). To be consistent with
+    that pipeline, we flip y here so the baseline model trains in image convention
+    (y=0=top), matching the ControlNet.
     """
     side = int(round(np.sqrt(n_points)))
     if side * side != n_points:
@@ -166,11 +172,16 @@ def points_to_data_t(points: np.ndarray, n_points: int) -> np.ndarray:
     if points.shape != (n_points, 2):
         raise ValueError(f"Expected points shape ({n_points}, 2), got {points.shape}")
 
+    # Flip y from GBN convention (y=0 = bottom) to image convention (y=0 = top),
+    # matching the coordinate system used in ControlNet target-image extraction.
+    pts = points.copy()
+    pts[:, 1] = 1.0 - pts[:, 1]
+
     gy, gx = np.meshgrid((np.arange(side) + 0.5) / side, (np.arange(side) + 0.5) / side, indexing="ij")
     grid = np.stack([gx.ravel(), gy.ravel()], axis=1)
 
-    order_pts = np.lexsort((points[:, 0], points[:, 1]))
-    pts_sorted = points[order_pts]
+    order_pts = np.lexsort((pts[:, 0], pts[:, 1]))
+    pts_sorted = pts[order_pts]
 
     offsets = (pts_sorted - grid) * side
     data_t = offsets.T.reshape(2, side, side)
@@ -188,8 +199,15 @@ def resolve_single_original(original_dir: Path) -> Path:
 
 def main() -> int:
     # Configuration block (editable)
+
+    # Stress 1
     data_path = REPO_ROOT / "data_stress1"
     count = 256
+
+    # Stress 2
+    # data_path = REPO_ROOT / "data_stress2"
+    # count = 1024
+
     n_points = 1024
     n_iters = 1000
     threshold = 255
