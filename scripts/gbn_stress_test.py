@@ -76,6 +76,44 @@ def load_points(txt_path: Path) -> np.ndarray:
     return np.asarray(pts, dtype=np.float64)
 
 
+def extract_points_from_target_image(target_path: Path, n_points: int) -> np.ndarray:
+    """Recover point coordinates directly from a rendered target image.
+
+    Returns points in GBN convention (y=0 at bottom), compatible with points_to_data_t.
+    """
+    from scipy import ndimage
+
+    img = cv2.imread(str(target_path), cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise RuntimeError(f"Could not read target image: {target_path}")
+
+    binary = (img < 128).astype(np.uint8)
+    labelled, n_labels = ndimage.label(binary)
+    if n_labels == 0:
+        raise RuntimeError(f"No stipple points detected in target image: {target_path}")
+
+    centroids = ndimage.center_of_mass(binary, labelled, range(1, n_labels + 1))
+    if len(centroids) != n_points:
+        raise RuntimeError(
+            f"Detected {len(centroids)} points in {target_path}, expected {n_points}. "
+            "Cannot safely rebuild HDF5 from this image."
+        )
+
+    h, w = img.shape
+    w_den = max(w - 1, 1)
+    h_den = max(h - 1, 1)
+
+    # centroids are (row=y_img, col=x_img) in image convention (y=0 at top)
+    # convert to GBN convention (y=0 at bottom)
+    pts = np.array(
+        [[cx / w_den, 1.0 - (cy / h_den)] for cy, cx in centroids],
+        dtype=np.float64,
+    )
+    pts[:, 0] = np.clip(pts[:, 0], 0.0, 1.0)
+    pts[:, 1] = np.clip(pts[:, 1], 0.0, 1.0)
+    return pts
+
+
 def normalize_points(points: np.ndarray, width: int, height: int, coord_mode: str) -> np.ndarray:
     if len(points) == 0:
         return points
@@ -180,8 +218,16 @@ def points_to_data_t(points: np.ndarray, n_points: int) -> np.ndarray:
     gy, gx = np.meshgrid((np.arange(side) + 0.5) / side, (np.arange(side) + 0.5) / side, indexing="ij")
     grid = np.stack([gx.ravel(), gy.ravel()], axis=1)
 
-    order_pts = np.lexsort((pts[:, 0], pts[:, 1]))
-    pts_sorted = pts[order_pts]
+    # True linear assignment (optimal transport on a uniform bipartite graph)
+    # preserves 2D spatial locality better than lexicographic sorting.
+    from scipy.optimize import linear_sum_assignment
+    from scipy.spatial.distance import cdist
+
+    cost = cdist(grid, pts, metric="sqeuclidean")
+    row_ind, col_ind = linear_sum_assignment(cost)
+    if row_ind.shape[0] != n_points:
+        raise RuntimeError("Linear assignment failed to match all points")
+    pts_sorted = pts[col_ind]
 
     offsets = (pts_sorted - grid) * side
     data_t = offsets.T.reshape(2, side, side)
@@ -216,7 +262,8 @@ def main() -> int:
     invert_density = False
     point_size = 1.0
     coord_mode = "auto"
-    overwrite = True
+    overwrite_images = True
+    overwrite_hdf5 = True
     keep_txt = False
     apply_quantization = False
     quantization_count = 4
@@ -235,12 +282,32 @@ def main() -> int:
     parser.add_argument("--invert_density", action=argparse.BooleanOptionalAction, default=invert_density)
     parser.add_argument("--point_size", type=float, default=point_size)
     parser.add_argument("--coord_mode", type=str, default=coord_mode, choices=["auto", "unit", "aspect"])
-    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=overwrite)
+    parser.add_argument(
+        "--overwrite-images",
+        action=argparse.BooleanOptionalAction,
+        default=overwrite_images,
+        help="Overwrite source/target (and txt when present) during image generation phase",
+    )
+    parser.add_argument(
+        "--overwrite-hdf5",
+        action=argparse.BooleanOptionalAction,
+        default=overwrite_hdf5,
+        help="Overwrite db/db_full.hdf5 during HDF5 build phase",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Deprecated alias for --overwrite-images",
+    )
     parser.add_argument("--keep_txt", action=argparse.BooleanOptionalAction, default=keep_txt)
     parser.add_argument("--apply_quantization", action=argparse.BooleanOptionalAction, default=apply_quantization)
     parser.add_argument("--quantization_count", type=int, default=quantization_count)
 
     args = parser.parse_args()
+
+    if args.overwrite is not None:
+        args.overwrite_images = args.overwrite
 
     if args.count <= 0:
         print("Error: --count must be > 0", file=sys.stderr)
@@ -292,40 +359,56 @@ def main() -> int:
         target_out = target_dir / f"{name}.png"
         txt_out = target_dir / f"{name}.txt"
 
-        txt_ready = txt_out.exists() if args.keep_txt else True
-        if not args.overwrite and source_out.exists() and target_out.exists() and txt_ready:
-            skipped += 1
-            # Even in skip mode, try to recover points for HDF5 build.
-            if txt_out.exists():
-                try:
-                    pts = load_points(txt_out)
-                    if pts.shape == (args.n_points, 2):
-                        all_points.append(pts)
-                        all_data_t.append(points_to_data_t(pts, args.n_points))
-                except Exception:
-                    pass
-            continue
-
-        cv2.imwrite(str(source_out), src_gray)
+        have_artifacts = source_out.exists() and target_out.exists()
+        must_generate = args.overwrite_images or (not have_artifacts)
 
         try:
-            run_gbn(density, txt_out, n_points=args.n_points, n_iters=args.n_iters)
-            pts = load_points(txt_out)
+            if must_generate:
+                cv2.imwrite(str(source_out), src_gray)
+                run_gbn(density, txt_out, n_points=args.n_points, n_iters=args.n_iters)
+
+                pts_for_render = load_points(txt_out)
+                if pts_for_render.shape != (args.n_points, 2):
+                    raise RuntimeError(
+                        f"Unexpected point shape for {name}: {pts_for_render.shape}, expected ({args.n_points}, 2)"
+                    )
+
+                rendered = render_stipple(
+                    pts_for_render,
+                    w_px,
+                    h_px,
+                    point_size=args.point_size,
+                    coord_mode=args.coord_mode,
+                )
+                cv2.imwrite(str(target_out), rendered)
+                done += 1
+            else:
+                skipped += 1
+
+            # Phase 2 input selection for HDF5 build:
+            # 1) Prefer txt if available, 2) otherwise recover from target image.
+            if txt_out.exists():
+                pts = load_points(txt_out)
+            elif target_out.exists():
+                pts = extract_points_from_target_image(target_out, args.n_points)
+            else:
+                raise RuntimeError(f"Missing both txt and target image for {name}")
+
             if pts.shape != (args.n_points, 2):
                 raise RuntimeError(
-                    f"Unexpected point shape for {name}: {pts.shape}, expected ({args.n_points}, 2)"
+                    f"Unexpected recovered point shape for {name}: {pts.shape}, expected ({args.n_points}, 2)"
                 )
-            rendered = render_stipple(pts, w_px, h_px, point_size=args.point_size, coord_mode=args.coord_mode)
-            cv2.imwrite(str(target_out), rendered)
 
             all_points.append(pts)
             all_data_t.append(points_to_data_t(pts, args.n_points))
 
-            if not args.keep_txt:
+            if must_generate and not args.keep_txt:
                 txt_out.unlink(missing_ok=True)
 
-            done += 1
-            print(f"[{i}/{args.count}] {name}: done")
+            print(
+                f"[{i}/{args.count}] {name}: "
+                f"{'generated' if must_generate else 'reused'} + aggregated"
+            )
         except Exception as exc:
             failed += 1
             print(f"[{i}/{args.count}] {name}: FAILED -> {exc}")
@@ -340,12 +423,15 @@ def main() -> int:
     prop_vec[4] = 1.0
     prop_arr = np.tile(prop_vec[None, :], (data_arr.shape[0], 1))
 
-    with h5py.File(hdf5_path, "w") as f:
-        g = f.create_group("GBN")
-        s = g.create_group(str(args.n_points))
-        s.create_dataset("data", data=data_arr)
-        s.create_dataset("data_t", data=data_t_arr)
-        s.create_dataset("prop", data=prop_arr)
+    if hdf5_path.exists() and not args.overwrite_hdf5:
+        print(f"HDF5 exists and overwrite is disabled; skipping write: {hdf5_path}")
+    else:
+        with h5py.File(hdf5_path, "w") as f:
+            g = f.create_group("GBN")
+            s = g.create_group(str(args.n_points))
+            s.create_dataset("data", data=data_arr)
+            s.create_dataset("data_t", data=data_t_arr)
+            s.create_dataset("prop", data=prop_arr)
 
     print("\nSummary")
     print(f"  data root:   {data_root}")
