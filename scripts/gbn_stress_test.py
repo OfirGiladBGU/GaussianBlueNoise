@@ -49,7 +49,13 @@ def write_pgm(gray: np.ndarray, path: Path) -> None:
 
 
 def load_gray(image_path: Path, image_size: tuple[int, int] | None) -> np.ndarray:
-    img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+    # PIL is more tolerant to malformed PNG metadata chunks (e.g., bKGD).
+    # This avoids noisy libpng warnings while preserving pixel data.
+    try:
+        img = np.array(Image.open(image_path).convert("L"), dtype=np.uint8)
+    except Exception:
+        img = None
+
     if img is None:
         raise RuntimeError(f"Could not read image: {image_path}")
     if image_size is not None:
@@ -181,11 +187,16 @@ def run_gbn(density: np.ndarray, out_txt: Path, n_points: int, n_iters: int) -> 
         raise RuntimeError(f"GBN binary failed:\n{proc.stderr}")
 
 
-def make_density(gray: np.ndarray, invert_density: bool, threshold: int) -> np.ndarray:
+def make_density(gray: np.ndarray, invert_density: bool, upper_threshold: int, lower_threshold: int) -> np.ndarray:
+    background_mask = np.zeros_like(gray, dtype=bool)
+    if upper_threshold != -1:
+        background_mask |= (gray >= upper_threshold)
+    if lower_threshold != -1:
+        background_mask |= (gray <= lower_threshold)
     density = gray.astype(np.float64)
     if invert_density:
         density = 255.0 - density
-    density = np.minimum(density, float(threshold))
+    density[background_mask] = 255.0
 
     d_min, d_max = density.min(), density.max()
     if d_max - d_min > 1e-9:
@@ -247,18 +258,25 @@ def main() -> int:
     # Configuration block (editable)
 
     # Stress 1
-    data_path = REPO_ROOT / "data_stress1"
-    count = 256
+    # data_path = REPO_ROOT / "data_stress1"
+    # count = 256
+    # invert_image = False
 
     # Stress 2
     # data_path = REPO_ROOT / "data_stress2"
     # count = 1024
+    # invert_image = False
+
+    # Stress 2 - V2
+    data_path = REPO_ROOT / "data_stress2_V2"
+    count = 1024
+    invert_image = True
 
     n_points = 1024
     n_iters = 1000
-    threshold = 255
+    upper_threshold = 255
+    lower_threshold = -1
     image_size = None
-    invert_image = False
     invert_density = False
     point_size = 1.0
     coord_mode = "auto"
@@ -276,7 +294,8 @@ def main() -> int:
     parser.add_argument("--count", type=int, default=count, help="Number of stress duplicates (typically 256 or 1024)")
     parser.add_argument("--n_points", type=int, default=n_points)
     parser.add_argument("--n_iters", type=int, default=n_iters)
-    parser.add_argument("--threshold", type=int, default=threshold)
+    parser.add_argument("--upper_threshold", type=int, default=upper_threshold)
+    parser.add_argument("--lower_threshold", type=int, default=lower_threshold)
     parser.add_argument("--image_size", type=int, nargs=2, default=image_size, metavar=("W", "H"))
     parser.add_argument("--invert_image", action=argparse.BooleanOptionalAction, default=invert_image)
     parser.add_argument("--invert_density", action=argparse.BooleanOptionalAction, default=invert_density)
@@ -338,7 +357,7 @@ def main() -> int:
     if args.apply_quantization:
         src_gray = quantize_gray(src_gray, args.quantization_count)
 
-    density = make_density(src_gray, invert_density=args.invert_density, threshold=args.threshold)
+    density = make_density(gray=src_gray, invert_density=args.invert_density, upper_threshold=args.upper_threshold, lower_threshold=args.lower_threshold)
 
     h_px, w_px = src_gray.shape
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -361,6 +380,11 @@ def main() -> int:
 
         have_artifacts = source_out.exists() and target_out.exists()
         must_generate = args.overwrite_images or (not have_artifacts)
+
+        print(
+            f"[{i}/{args.count}] {name}: START "
+            f"({'generate' if must_generate else 'reuse'})"
+        )
 
         try:
             if must_generate:
@@ -405,10 +429,7 @@ def main() -> int:
             if must_generate and not args.keep_txt:
                 txt_out.unlink(missing_ok=True)
 
-            print(
-                f"[{i}/{args.count}] {name}: "
-                f"{'generated' if must_generate else 'reused'} + aggregated"
-            )
+            print(f"[{i}/{args.count}] {name}: done")
         except Exception as exc:
             failed += 1
             print(f"[{i}/{args.count}] {name}: FAILED -> {exc}")
