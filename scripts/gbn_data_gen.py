@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -206,23 +207,65 @@ def process_one(
 
 
 def main() -> int:
-    # ── Configuration (edit values here) ──────────────────────────────────────
-    data_path          = Path("/groups/asharf_group/ofirgila/ControlNet/training/FiveK_dataset_nzk_512x512")  # Dataset root that contains original/source/target
-    n                  = -1             # Number of images to process; -1 = all
-    n_points           = 1024           # GBN point count
+    ############################
+    # CONFIGURATION PARAMETERS #
+    ############################
+
+    # ICONS-50 - dataset
+    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"
+    # n_points           = 1024
+    # apply_preprocess = False
+    # image_size         = (512, 512)
+
+    # CelebA - dataset
+    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024"
+    # n_points           = 1024
+    # apply_preprocess = True
+    # image_size         = (512, 512)
+
+    # AM-2K - dataset
+    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024"
+    # n_points           = 1024
+    # apply_preprocess = True
+    # image_size         = (512, 512)
+
+
+    # Quadratic Sample
+    data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2"
+    n_points           = 1024
+    apply_preprocess = False
+    image_size         = None
+
+    # Monkey Sample
+    # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey"
+    # n_points           = 1024
+    # apply_preprocess = False
+    # image_size         = None
+
+    # Plant Sample
+    # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2"
+    # n_points           = 1024
+    # apply_preprocess = False
+    # image_size         = None
+
+
+    n                  = -1            # Number of images to process; -1 = all
+    # n_points           = 1024           # GBN point count
     n_iters            = 1000           # GBN optimization iterations
     threshold          = 255            # Density cap before stippling; 255 means no cap
-    image_size         = (512, 512)     # (W, H) or None to keep original size
+    # image_size         = (512, 512)   # (W, H) or None to keep original size
+    # image_size         = None
     invert_image       = False          # Invert source image pixels
     invert_density     = False          # Invert density seen by GBN
     point_size         = 1.0            # Rendered stipple point size in pixels
-    apply_preprocess   = True           # Apply preprocessing pipeline before stippling
+    # apply_preprocess   = False           # Apply preprocessing pipeline before stippling
     disable_bg_suppression = False      # Disable bg suppression inside preprocessing
     apply_quantization = False          # Quantize gray levels before stippling
     quantization_count = 4              # Number of gray levels after quantization
     coord_mode         = "auto"         # One of: auto, unit, aspect
     overwrite          = True           # Overwrite existing source/target files
     keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
+    track_time         = False          # Track and export elapsed time per image to timestamps/ subfolder
     # ──────────────────────────────────────────────────────────────────────────
 
     parser = argparse.ArgumentParser(
@@ -246,6 +289,8 @@ def main() -> int:
     parser.add_argument("--coord_mode",             type=str,   default=coord_mode,         choices=["auto", "unit", "aspect"])
     parser.add_argument("--overwrite",              action=argparse.BooleanOptionalAction,  default=overwrite)
     parser.add_argument("--keep_txt",               action=argparse.BooleanOptionalAction,  default=keep_txt)
+    parser.add_argument("--track_time",             action=argparse.BooleanOptionalAction,  default=track_time,
+                        help="Enable time tracking; saves elapsed time per image to timestamps/ subfolder")
     # fmt: on
 
     args = parser.parse_args()
@@ -254,11 +299,20 @@ def main() -> int:
         print(f"Error: GBN binary not found: {GBN_BINARY}", file=sys.stderr)
         return 1
 
-    data_path = args.data_path.resolve()
-    original_dir = data_path / "original"
-    source_dir = data_path / "source"
-    target_dir = data_path / "target"
-    json_path = data_path / "prompt.json"
+
+    # NOTE: Build paths
+    ORIGINAL_PATH = os.path.join(args.data_path, "original")
+    SOURCE_PATH = os.path.join(args.data_path, "source")
+    TARGET_PATH = os.path.join(args.data_path, "target")
+    JSON_PATH = os.path.join(args.data_path, "prompt.json")
+    TIMESTAMPS_PATH = os.path.join(args.data_path, "timestamps") if args.track_time else None
+
+    data_path = args.data_path
+    original_dir = Path(ORIGINAL_PATH)
+    source_dir = Path(SOURCE_PATH)
+    target_dir = Path(TARGET_PATH)
+    json_path = Path(JSON_PATH)
+    timestamps_dir = Path(TIMESTAMPS_PATH) if TIMESTAMPS_PATH is not None else None
 
     if not original_dir.is_dir():
         print(f"Error: 'original/' folder not found under: {data_path}", file=sys.stderr)
@@ -266,6 +320,8 @@ def main() -> int:
 
     source_dir.mkdir(parents=True, exist_ok=True)
     target_dir.mkdir(parents=True, exist_ok=True)
+    if args.track_time:
+        timestamps_dir.mkdir(parents=True, exist_ok=True)
 
     image_size = tuple(args.image_size) if args.image_size is not None else None
 
@@ -296,6 +352,11 @@ def main() -> int:
         target_out = target_dir / rel_path.with_suffix(".png")
 
         print(f"[{i}/{n}] {rel_path} ... ", end="", flush=True)
+        
+        # Time tracking
+        if args.track_time:
+            start_time = time.time()
+        
         try:
             status = process_one(
                 src_path=src,
@@ -316,6 +377,16 @@ def main() -> int:
                 overwrite=args.overwrite,
                 keep_txt=args.keep_txt,
             )
+            
+            # Save timing info if tracking is enabled
+            if args.track_time:
+                elapsed = time.time() - start_time
+                # Build the timestamp file path (same relative structure, with .txt extension)
+                timestamp_file = timestamps_dir / rel_path.with_suffix(".txt")
+                timestamp_file.parent.mkdir(parents=True, exist_ok=True)
+                with timestamp_file.open('w') as f:
+                    f.write(f"{elapsed:.6f}\n")
+            
             if status == "skipped":
                 skipped += 1
                 print("skipped")
