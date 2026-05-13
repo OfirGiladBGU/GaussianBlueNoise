@@ -214,39 +214,54 @@ def main() -> int:
     # ICONS-50 - dataset
     # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"
     # n_points           = 1024
-    # apply_preprocess = False
+    # apply_preprocess   = False
     # image_size         = (512, 512)
 
     # CelebA - dataset
     # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024"
     # n_points           = 1024
-    # apply_preprocess = True
+    # apply_preprocess   = True
     # image_size         = (512, 512)
 
     # AM-2K - dataset
     # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024"
     # n_points           = 1024
-    # apply_preprocess = True
+    # apply_preprocess   = True
     # image_size         = (512, 512)
 
 
     # Quadratic Sample
-    data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2"
-    n_points           = 1024
-    apply_preprocess = False
-    image_size         = None
+    # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2"
+    # n_points           = 1024
+    # apply_preprocess   = False
+    # image_size         = None
 
     # Monkey Sample
     # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey"
     # n_points           = 1024
-    # apply_preprocess = False
+    # apply_preprocess   = False
     # image_size         = None
 
     # Plant Sample
     # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2"
     # n_points           = 1024
-    # apply_preprocess = False
+    # apply_preprocess   = False
     # image_size         = None
+
+
+    # Faces Set Sample
+    # data_path = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/faces_results_compare"
+    # n_points           = 1024
+    # apply_preprocess   = False
+    # image_size         = (512, 512)
+
+    # ICONS - TIMES
+    data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+    # n_points = 576
+    # n_points = 1024
+    n_points = 2304
+    apply_preprocess   = False
+    image_size         = (512, 512)
 
 
     n                  = -1            # Number of images to process; -1 = all
@@ -265,7 +280,7 @@ def main() -> int:
     coord_mode         = "auto"         # One of: auto, unit, aspect
     overwrite          = True           # Overwrite existing source/target files
     keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
-    track_time         = False          # Track and export elapsed time per image to timestamps/ subfolder
+    track_time         = True          # Track and export elapsed time per image to timestamps/ subfolder
     # ──────────────────────────────────────────────────────────────────────────
 
     parser = argparse.ArgumentParser(
