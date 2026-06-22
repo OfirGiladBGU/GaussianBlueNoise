@@ -207,6 +207,25 @@ def process_one(
 
 
 def main() -> int:
+    # Defaults #
+    n                  = -1             # Number of images to process; -1 = all
+    n_points           = 1024           # GBN point count
+    n_iters            = 1000           # GBN optimization iterations
+    threshold          = 255            # Density cap before stippling; 255 means no cap
+    image_size         = None
+    # image_size         = (512, 512)   # (W, H) or None to keep original size
+    invert_image       = False          # Invert source image pixels
+    invert_density     = False          # Invert density seen by GBN
+    point_size         = 1.0            # Rendered stipple point size in pixels
+    apply_preprocess   = False           # Apply preprocessing pipeline before stippling
+    disable_bg_suppression = False      # Disable bg suppression inside preprocessing
+    apply_quantization = False          # Quantize gray levels before stippling
+    quantization_count = 4              # Number of gray levels after quantization
+    coord_mode         = "auto"         # One of: auto, unit, aspect
+    overwrite          = True           # Overwrite existing source/target files
+    keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
+    track_time         = True          # Track and export elapsed time per image to timestamps/ subfolder
+
     ############################
     # CONFIGURATION PARAMETERS #
     ############################
@@ -280,25 +299,6 @@ def main() -> int:
     # n_points = 12544  # 112
     apply_preprocess   = False
     image_size         = (512, 512)
-
-    n                  = -1            # Number of images to process; -1 = all
-    # n_points           = 1024           # GBN point count
-    n_iters            = 1000           # GBN optimization iterations
-    threshold          = 255            # Density cap before stippling; 255 means no cap
-    # image_size         = (512, 512)   # (W, H) or None to keep original size
-    # image_size         = None
-    invert_image       = False          # Invert source image pixels
-    invert_density     = False          # Invert density seen by GBN
-    point_size         = 1.0            # Rendered stipple point size in pixels
-    # apply_preprocess   = False           # Apply preprocessing pipeline before stippling
-    disable_bg_suppression = False      # Disable bg suppression inside preprocessing
-    apply_quantization = False          # Quantize gray levels before stippling
-    quantization_count = 4              # Number of gray levels after quantization
-    coord_mode         = "auto"         # One of: auto, unit, aspect
-    overwrite          = True           # Overwrite existing source/target files
-    keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
-    track_time         = True          # Track and export elapsed time per image to timestamps/ subfolder
-    # ──────────────────────────────────────────────────────────────────────────
 
     parser = argparse.ArgumentParser(
         description="Generate source/target stippling dataset with Gaussian Blue Noise",

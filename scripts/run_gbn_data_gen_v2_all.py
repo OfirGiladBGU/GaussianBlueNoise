@@ -1,8 +1,11 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Run gbn_data_gen.py for all ICONS-TIMES-V2 n_points values.
 
 After each run, the output subfolders (target, timestamps) are renamed
 with a _GBN_<N_POINTS> postfix. original/ and source/ are left untouched.
+
+All run parameters are passed explicitly on the command line so this driver
+does not depend on the defaults inside gbn_data_gen.py.
 """
 
 import subprocess
@@ -17,6 +20,24 @@ DATA_PATH = Path(
     "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion"
     "/experiments/outputs/icons_results_runtimes"
 )
+
+# Full ICONS - TIMES - V2 parameter set (passed explicitly; do not assume the
+# underlying script defaults).
+N = -1                  # -1 == process all images
+N_ITERS = 1000
+THRESHOLD = 255
+IMAGE_SIZE = (512, 512)
+INVERT_IMAGE = False
+INVERT_DENSITY = False
+POINT_SIZE = 1.0
+APPLY_PREPROCESS = False
+DISABLE_BG_SUPPRESSION = False
+APPLY_QUANTIZATION = False
+QUANTIZATION_COUNT = 4
+COORD_MODE = "auto"
+OVERWRITE = True
+KEEP_TXT = False
+TRACK_TIME = True
 
 # ICONS - TIMES - V2  (actual point counts; comments show NxN equivalent)
 N_POINTS = [
@@ -54,7 +75,26 @@ def main():
         print(f"  N_POINTS = {n_points}")
         print(f"{'='*70}\n")
 
-        cmd = [sys.executable, str(SCRIPT_PATH), "--n_points", str(n_points)]
+        cmd = [
+            sys.executable, str(SCRIPT_PATH),
+            "--data_path", str(DATA_PATH),
+            "--n", str(N),
+            "--n_points", str(n_points),
+            "--n_iters", str(N_ITERS),
+            "--threshold", str(THRESHOLD),
+            "--image_size", str(IMAGE_SIZE[0]), str(IMAGE_SIZE[1]),
+            "--invert_image" if INVERT_IMAGE else "--no-invert_image",
+            "--invert_density" if INVERT_DENSITY else "--no-invert_density",
+            "--point_size", str(POINT_SIZE),
+            "--apply_preprocess" if APPLY_PREPROCESS else "--no-apply_preprocess",
+            "--disable_bg_suppression" if DISABLE_BG_SUPPRESSION else "--no-disable_bg_suppression",
+            "--apply_quantization" if APPLY_QUANTIZATION else "--no-apply_quantization",
+            "--quantization_count", str(QUANTIZATION_COUNT),
+            "--coord_mode", COORD_MODE,
+            "--overwrite" if OVERWRITE else "--no-overwrite",
+            "--keep_txt" if KEEP_TXT else "--no-keep_txt",
+            "--track_time" if TRACK_TIME else "--no-track_time",
+        ]
         print(f"Command: {' '.join(cmd)}\n")
 
         result = subprocess.run(cmd)
