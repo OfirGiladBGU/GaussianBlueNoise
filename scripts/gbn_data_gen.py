@@ -278,7 +278,8 @@ def main() -> int:
     # n_points = 9216  # 96
     # n_points = 10816  # 104
     # n_points = 12544  # 112
-
+    apply_preprocess   = False
+    image_size         = (512, 512)
 
     n                  = -1            # Number of images to process; -1 = all
     # n_points           = 1024           # GBN point count
