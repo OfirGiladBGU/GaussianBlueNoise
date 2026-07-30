@@ -231,10 +231,11 @@ def main() -> int:
     ############################
 
     # ICONS-50 - dataset
-    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"
-    # n_points           = 1024
-    # apply_preprocess   = False
-    # image_size         = (512, 512)
+    data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"
+    n_points           = 1024
+    apply_preprocess   = False
+    image_size         = (512, 512)
+    track_time         = False
 
     # CelebA - dataset
     # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024"
@@ -283,8 +284,8 @@ def main() -> int:
     # image_size         = (512, 512)
 
     # ICONS - TIMES - V2
-    data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
-    n_points = 256  # 16
+    # data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+    # n_points = 256  # 16
     # n_points = 576  # 24 
     # n_points = 1024  # 32
     # n_points = 1600  # 40
@@ -297,8 +298,8 @@ def main() -> int:
     # n_points = 9216  # 96
     # n_points = 10816  # 104
     # n_points = 12544  # 112
-    apply_preprocess   = False
-    image_size         = (512, 512)
+    # apply_preprocess   = False
+    # image_size         = (512, 512)
 
     parser = argparse.ArgumentParser(
         description="Generate source/target stippling dataset with Gaussian Blue Noise",
