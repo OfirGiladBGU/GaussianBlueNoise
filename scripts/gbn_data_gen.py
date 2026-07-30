@@ -296,16 +296,18 @@ def main() -> int:
     track_time         = False
 
     # CelebA - dataset
-    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/CelebA_5K_1024_GBN"
+    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN"
     # n_points           = 1024
     # apply_preprocess   = True
     # image_size         = (512, 512)
+    # track_time         = False
 
     # AM-2K - dataset
     # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN"
     # n_points           = 1024
     # apply_preprocess   = True
     # image_size         = (512, 512)
+    # track_time         = False
 
 
     # Quadratic Sample
