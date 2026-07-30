@@ -83,6 +83,49 @@ def normalize_points(points: np.ndarray, width: int, height: int, coord_mode: st
     return pts
 
 
+def points_to_canonical(points: np.ndarray, width: int, height: int, coord_mode: str) -> np.ndarray:
+    """GBN solver output -> canonical (N,2) float64, x-then-y, [0,1], y increasing DOWNWARD.
+
+    Canonical is the convention control_v4/train_control.py:extract_points_from_target returns
+    ([cx / w, cy / h]), so an exported .npy is a drop-in replacement for centroid detection.
+
+    GBN emits [0,1] coordinates with y pointing UP -- render_stipple draws each point at
+    (1 - y) * (height - 1) -- so only y needs flipping. This deliberately reuses the SAME
+    normalize_points() the rasteriser uses and omits only its round()/(width - 1) quantisation,
+    because that rounding is the single lossy step in the PNG path.
+    """
+    pts = np.asarray(normalize_points(points, width, height, coord_mode=coord_mode),
+                     dtype=np.float64).copy()
+    if len(pts) == 0:
+        return pts.reshape(0, 2)
+    pts[:, 1] = 1.0 - pts[:, 1]
+    # Half-open [0, 1): a coordinate of exactly 1.0 indexes one past the last pixel downstream.
+    return np.clip(pts, 0.0, 1.0 - 1e-9)
+
+
+def save_points_npy(points: np.ndarray, out_path: Path, n_expected: int | None = None) -> None:
+    """Write canonical coordinates atomically.
+
+    n_expected is ASSERTED, not repaired. A short export means GBN did not place the requested
+    number of points, and silently padding it -- which the training loader does, with UNIFORM RANDOM
+    points -- would inject noise into a target whose point statistics are the object of study.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError(f"expected (N, 2) points, got {pts.shape}")
+    if n_expected is not None and len(pts) != n_expected:
+        raise ValueError(f"expected {n_expected} points, got {len(pts)} for {out_path}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # np.save() APPENDS ".npy" when handed a path, which is why the temp name used to have to
+    # end in that extension itself -- leaving interrupted runs behind a temp file that any *.npy
+    # glob over the target dir would pick up as a real export. Passing a file handle suppresses
+    # the append, so the temp is a plain "<stem>.npy.tmp" and cannot be mistaken for one.
+    tmp = str(out_path) + ".tmp"
+    with open(tmp, "wb") as handle:
+        np.save(handle, pts)
+    os.replace(tmp, out_path)
+
+
 def render_stipple(points: np.ndarray, width: int, height: int, point_size: float, coord_mode: str) -> np.ndarray:
     pts = normalize_points(points, width, height, coord_mode=coord_mode)
     canvas = Image.new("L", (width, height), color=255)
@@ -162,10 +205,17 @@ def process_one(
     coord_mode: str,
     overwrite: bool,
     keep_txt: bool,
+    export_png: bool = True,
+    export_npy: bool = True,
 ) -> str:
     txt_path = target_out.with_suffix(".txt")
+    npy_path = target_out.with_suffix(".npy")
     txt_ready = txt_path.exists() if keep_txt else True
-    if not overwrite and source_out.exists() and target_out.exists() and txt_ready:
+    outputs_ready = (
+        (target_out.exists() if export_png else True)
+        and (npy_path.exists() if export_npy else True)
+    )
+    if not overwrite and source_out.exists() and outputs_ready and txt_ready:
         return "skipped"
 
     before, source_gray = prepare_source_gray(
@@ -197,8 +247,14 @@ def process_one(
 
     h_px, w_px = source_gray.shape[:2]
     points = load_points(txt_path)
-    rendered = render_stipple(points, w_px, h_px, point_size=point_size, coord_mode=coord_mode)
-    cv2.imwrite(str(target_out), rendered)
+
+    if export_png:
+        rendered = render_stipple(points, w_px, h_px, point_size=point_size, coord_mode=coord_mode)
+        cv2.imwrite(str(target_out), rendered)
+
+    if export_npy:
+        save_points_npy(points_to_canonical(points, w_px, h_px, coord_mode=coord_mode),
+                        npy_path, n_expected=n_points)
 
     if not keep_txt:
         txt_path.unlink(missing_ok=True)
@@ -224,27 +280,29 @@ def main() -> int:
     coord_mode         = "auto"         # One of: auto, unit, aspect
     overwrite          = True           # Overwrite existing source/target files
     keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
+    export_png         = True           # Write the rasterised target .png
+    export_npy         = True           # Write exact continuous coordinates as target .npy
     track_time         = True          # Track and export elapsed time per image to timestamps/ subfolder
 
     ############################
     # CONFIGURATION PARAMETERS #
     ############################
 
-    # ICONS-50 - dataset
-    data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"
+    # Icons-50 - dataset
+    data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN"
     n_points           = 1024
     apply_preprocess   = False
     image_size         = (512, 512)
     track_time         = False
 
     # CelebA - dataset
-    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024"
+    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/CelebA_5K_1024_GBN"
     # n_points           = 1024
     # apply_preprocess   = True
     # image_size         = (512, 512)
 
     # AM-2K - dataset
-    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024"
+    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN"
     # n_points           = 1024
     # apply_preprocess   = True
     # image_size         = (512, 512)
@@ -322,6 +380,10 @@ def main() -> int:
     parser.add_argument("--coord_mode",             type=str,   default=coord_mode,         choices=["auto", "unit", "aspect"])
     parser.add_argument("--overwrite",              action=argparse.BooleanOptionalAction,  default=overwrite)
     parser.add_argument("--keep_txt",               action=argparse.BooleanOptionalAction,  default=keep_txt)
+    parser.add_argument("--export_png",             action=argparse.BooleanOptionalAction,  default=export_png,
+                        help="Write the rasterised target .png")
+    parser.add_argument("--export_npy",             action=argparse.BooleanOptionalAction,  default=export_npy,
+                        help="Write exact continuous coordinates as target .npy")
     parser.add_argument("--track_time",             action=argparse.BooleanOptionalAction,  default=track_time,
                         help="Enable time tracking; saves elapsed time per image to timestamps/ subfolder")
     # fmt: on
@@ -409,6 +471,8 @@ def main() -> int:
                 coord_mode=args.coord_mode,
                 overwrite=args.overwrite,
                 keep_txt=args.keep_txt,
+                export_png=args.export_png,
+                export_npy=args.export_npy,
             )
             
             # Save timing info if tracking is enabled
