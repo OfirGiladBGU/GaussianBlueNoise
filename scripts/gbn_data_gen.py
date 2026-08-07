@@ -342,7 +342,7 @@ def main() -> int:
     # image_size         = (512, 512)
 
     # Icons-50 - METRICS
-    # data_path  = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
+    # data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
     # n_points = 1024
     # apply_preprocess = False
     # track_time = False
