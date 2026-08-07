@@ -151,6 +151,37 @@ def normalize_points(points: np.ndarray, width: int, height: int, coord_mode: st
     return pts
 
 
+def points_to_canonical(points: np.ndarray, width: int, height: int, coord_mode: str) -> np.ndarray:
+    """GBN solver output -> canonical (N, 2) float64, x-then-y, [0, 1], y increasing DOWNWARD.
+
+    Same convention as control_v4/train_control.py:extract_points_from_target ([cx/w, cy/h]),
+    so an exported .npy is a drop-in replacement for PNG centroid detection. GBN emits y-UP
+    (render_stipple draws at (1 - y)*(h-1)), so only y is flipped. Reuses the SAME
+    normalize_points() the rasteriser uses, omitting only its round()/(width-1) quantisation --
+    the single lossy step in the PNG path.
+    """
+    pts = np.asarray(normalize_points(points, width, height, coord_mode=coord_mode),
+                     dtype=np.float64).copy()
+    if len(pts) == 0:
+        return pts.reshape(0, 2)
+    pts[:, 1] = 1.0 - pts[:, 1]
+    return np.clip(pts, 0.0, 1.0 - 1e-9)
+
+
+def save_points_npy(points: np.ndarray, out_path: Path, n_expected: int | None = None) -> None:
+    """Write canonical coordinates atomically (temp file + os.replace)."""
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError(f"expected (N, 2) points, got {pts.shape}")
+    if n_expected is not None and len(pts) != n_expected:
+        print(f"  [warn] wrote {len(pts)} points (expected {n_expected}): {out_path}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = str(out_path) + ".tmp"
+    with open(tmp, "wb") as handle:
+        np.save(handle, pts)
+    os.replace(tmp, out_path)
+
+
 def render_stipple(points: np.ndarray, width: int, height: int, point_size: float, coord_mode: str) -> np.ndarray:
     pts = normalize_points(points, width, height, coord_mode=coord_mode)
     canvas = Image.new("L", (width, height), color=255)
@@ -377,8 +408,9 @@ def main() -> int:
         source_out = source_dir / f"{name}.png"
         target_out = target_dir / f"{name}.png"
         txt_out = target_dir / f"{name}.txt"
+        npy_out = target_dir / f"{name}.npy"
 
-        have_artifacts = source_out.exists() and target_out.exists()
+        have_artifacts = source_out.exists() and target_out.exists() and npy_out.exists()
         must_generate = args.overwrite_images or (not have_artifacts)
 
         print(
@@ -405,6 +437,11 @@ def main() -> int:
                     coord_mode=args.coord_mode,
                 )
                 cv2.imwrite(str(target_out), rendered)
+                save_points_npy(
+                    points_to_canonical(pts_for_render, w_px, h_px, coord_mode=args.coord_mode),
+                    npy_out,
+                    n_expected=args.n_points,
+                )
                 done += 1
             else:
                 skipped += 1
