@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """GBN dataset generator.
 
-Reads images from <data_path>/original/, prepares source/ and target/ outputs,
+Reads images from <data_path>/original/ (or from source/ when there is no original/),
+prepares source/ and target/ outputs,
 and writes prompt.json JSONL entries.
 
 Preprocessing lives in image_preprocess.py and is used when --apply_preprocess.
@@ -232,8 +233,11 @@ def process_one(
     if apply_quantization:
         source_gray = quantize_gray(source_gray, quantization_count)
 
-    source_out.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(source_out), source_gray)
+    # When the input IS the source (dataset has no original/), writing back would only
+    # re-encode the file we just read -- skip it and leave source/ exactly as staged.
+    if src_path.resolve() != source_out.resolve():
+        source_out.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(source_out), source_gray)
 
     density = source_gray.astype(np.float32)
     if invert_density:
@@ -267,86 +271,130 @@ def process_one(
 
 def main() -> int:
     # Defaults #
-    n                  = -1             # Number of images to process; -1 = all
-    n_points           = 1024           # GBN point count
-    n_iters            = 1000           # GBN optimization iterations
-    threshold          = 255            # Density cap before stippling; 255 means no cap
-    image_size         = None
-    # image_size         = (512, 512)   # (W, H) or None to keep original size
-    invert_image       = False          # Invert source image pixels
-    invert_density     = False          # Invert density seen by GBN
-    point_size         = 1.0            # Rendered stipple point size in pixels
-    apply_preprocess   = False           # Apply preprocessing pipeline before stippling
-    disable_bg_suppression = False      # Disable bg suppression inside preprocessing
-    apply_quantization = False          # Quantize gray levels before stippling
-    quantization_count = 4              # Number of gray levels after quantization
-    coord_mode         = "auto"         # One of: auto, unit, aspect
-    overwrite          = True           # Overwrite existing source/target files
-    keep_txt           = False          # Keep GBN txt files (default off for dataset generation)
-    export_png         = True           # Write the rasterised target .png
-    export_npy         = True           # Write exact continuous coordinates as target .npy
-    track_time         = True          # Track and export elapsed time per image to timestamps/ subfolder
+    n = -1  # Number of images to process; -1 = all
+    n_points = 1024  # GBN point count
+    n_iters = 1000  # GBN optimization iterations
+    threshold = 255  # Density cap before stippling; 255 means no cap
+    image_size = None
+    # image_size  = (512, 512)  # (W, H) or None to keep original size
+    invert_image = False  # Invert source image pixels
+    invert_density = False  # Invert density seen by GBN
+    point_size = 1.0  # Rendered stipple point size in pixels
+    apply_preprocess = False  # Apply preprocessing pipeline before stippling
+    disable_bg_suppression = False  # Disable bg suppression inside preprocessing
+    apply_quantization = False  # Quantize gray levels before stippling
+    quantization_count = 4  # Number of gray levels after quantization
+    coord_mode = "auto"  # One of: auto, unit, aspect
+    overwrite = False  # Overwrite existing source/target files
+    keep_txt = False  # Keep GBN txt files (default off for dataset generation)
+    export_png = True  # Write the rasterised target .png
+    export_npy = True  # Write exact continuous coordinates as target .npy
+    track_time = True  # Track and export elapsed time per image to timestamps/ subfolder
+
+    target_folder = "target"
 
     ############################
     # CONFIGURATION PARAMETERS #
     ############################
 
     # Icons-50 - dataset
-    data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN"
-    n_points           = 1024
-    apply_preprocess   = False
-    image_size         = (512, 512)
-    track_time         = False
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN"
+    # n_points = 1024
+    # apply_preprocess = False
+    # image_size = (512, 512)
+    # track_time = False
 
     # CelebA - dataset
-    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN"
-    # n_points           = 1024
-    # apply_preprocess   = True
-    # image_size         = (512, 512)
-    # track_time         = False
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN"
+    # n_points = 1024
+    # apply_preprocess = True
+    # image_size = (512, 512)
+    # track_time = False
+
+    # ShapeNetRendering - dataset
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRendering-3K_256_GBN"
+    # n_points = 256
+    # image_size = None
+    # track_time = False
+
+    # ShapeNetRenderingV2 - dataset
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRenderingV2-3K_576_GBN"
+    # n_points = 576
+    # image_size = (448, 448)
+    # apply_preprocess = True
+    # track_time = False
+
+    # AirplaneCarShip - dataset
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/AirplaneCarShip-3K_1600_GBN"
+    # n_points = 1600
+    # image_size = (448, 448)
+    # apply_preprocess = True
+    # track_time = False
+
+    # ShapeNetRender_Custom - dataset
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_GBN"
+    # n_points = 1600
+    # image_size = None
+    # apply_preprocess = True
+    # track_time = False
+
 
     # AM-2K - dataset
-    # data_path          = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN"
-    # n_points           = 1024
-    # apply_preprocess   = True
-    # image_size         = (512, 512)
-    # track_time         = False
+    # data_path = r"/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN"
+    # n_points = 1024
+    # apply_preprocess = True
+    # image_size = (512, 512)
+    # track_time = False
 
 
     # Quadratic Sample
-    # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
-    # n_points           = 1024
-    # apply_preprocess   = False
-    # image_size         = None
-    # track_time         = False
+    # data_path = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic"
+    # n_points = 1024
+    # apply_preprocess = False
+    # image_size = None
+    # track_time = False
+    # target_folder = f"target_GBN_{n_points}"
 
     # Monkey Sample
-    # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/monkey"
-    # n_points           = 1024
-    # apply_preprocess   = False
-    # image_size         = None
-    # track_time         = False
+    # data_path = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/monkey"
+    # n_points = 1024
+    # apply_preprocess = False
+    # image_size = None
+    # track_time = False
+    # target_folder = f"target_GBN_{n_points}"
 
     # Plant Sample
-    # data_path          = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/plant2"
-    # n_points           = 1024
-    # apply_preprocess   = False
-    # image_size         = None
-    # track_time         = False
+    # data_path = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/plant2"
+    # n_points = 1024
+    # apply_preprocess = False
+    # image_size = None
+    # track_time = False
+    # target_folder = f"target_GBN_{n_points}"
+
+
+    # Spectral Analysis Set Sample
+    data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/spectral_analysis"
+    n_points = 1024
+    apply_preprocess = False
+    image_size = None
+    track_time = False
+    target_folder = f"target_GBN_{n_points}"
 
 
     # Faces Set Sample
     # data_path = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/faces_results_compare"
-    # n_points           = 1024
-    # apply_preprocess   = False
-    # image_size         = (512, 512)
-    # track_time         = False
+    # n_points = 1024
+    # apply_preprocess = False
+    # image_size = (512, 512)
+    # track_time = False
+    # target_folder = f"target_GBN_{n_points}"
 
     # Icons-50 - METRICS
     # data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
     # n_points = 1024
     # apply_preprocess = False
     # track_time = False
+    # target_folder = f"target_GBN_{n_points}"
 
     # Icons-50 - TIMES - V1
     # data_path = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
@@ -355,6 +403,7 @@ def main() -> int:
     # n_points = 2304
     # apply_preprocess = False
     # image_size = (512, 512)
+    # target_folder = f"target_GBN_{n_points}"
 
 
     parser = argparse.ArgumentParser(
@@ -363,6 +412,8 @@ def main() -> int:
     )
     # fmt: off
     parser.add_argument("--data_path",              type=Path,  default=data_path)
+    parser.add_argument("--target_folder",          type=str,   default=target_folder,
+                        help="Output folder name under --data_path (e.g. target_GBN_1024).")
     parser.add_argument("--n",                      type=int,   default=n,                  help="-1 means all images")
     parser.add_argument("--n_points",               type=int,   default=n_points)
     parser.add_argument("--n_iters",                type=int,   default=n_iters)
@@ -396,7 +447,7 @@ def main() -> int:
     # NOTE: Build paths
     ORIGINAL_PATH = os.path.join(args.data_path, "original")
     SOURCE_PATH = os.path.join(args.data_path, "source")
-    TARGET_PATH = os.path.join(args.data_path, "target")
+    TARGET_PATH = os.path.join(args.data_path, args.target_folder)
     JSON_PATH = os.path.join(args.data_path, "prompt.json")
     TIMESTAMPS_PATH = os.path.join(args.data_path, "timestamps") if args.track_time else None
 
@@ -407,9 +458,19 @@ def main() -> int:
     json_path = Path(JSON_PATH)
     timestamps_dir = Path(TIMESTAMPS_PATH) if TIMESTAMPS_PATH is not None else None
 
-    if not original_dir.is_dir():
-        print(f"Error: 'original/' folder not found under: {data_path}", file=sys.stderr)
+    # Read inputs from original/ when present, else source/. Reading from source/ means the
+    # images ARE the source: there is no original -> source step to perform, so preprocessing
+    # is forced off (it would preprocess an already-preprocessed image) and process_one
+    # leaves source/ untouched.
+    use_original = original_dir.is_dir()
+    input_dir = original_dir if use_original else source_dir
+    if not input_dir.is_dir():
+        print(f"Error: no 'original/' or 'source/' folder under: {data_path}", file=sys.stderr)
         return 1
+    if not use_original and args.apply_preprocess:
+        print("Note: no 'original/' folder -- reading from 'source/' and skipping "
+              "--apply_preprocess (those images are already the source).", file=sys.stderr)
+        args.apply_preprocess = False
 
     source_dir.mkdir(parents=True, exist_ok=True)
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -420,14 +481,14 @@ def main() -> int:
 
     image_files = sorted(
         [
-            p.relative_to(original_dir)
-            for p in original_dir.rglob("*")
+            p.relative_to(input_dir)
+            for p in input_dir.rglob("*")
             if p.is_file() and p.suffix.lower() in VALID_EXT
         ]
     )
 
     if not image_files:
-        print(f"No images found under: {original_dir}", file=sys.stderr)
+        print(f"No images found under: {input_dir}", file=sys.stderr)
         return 1
 
     n = len(image_files) if args.n == -1 else min(args.n, len(image_files))
@@ -440,7 +501,7 @@ def main() -> int:
     failed = 0
 
     for i, rel_path in enumerate(image_files[:n], start=1):
-        src = original_dir / rel_path
+        src = input_dir / rel_path
         source_out = source_dir / rel_path.with_suffix(".png")
         target_out = target_dir / rel_path.with_suffix(".png")
 

@@ -70,10 +70,16 @@ def preprocess_image(gray: np.ndarray, do_bg_suppression: bool = True) -> np.nda
 
 
 def load_gray(image_path: Path, image_size: tuple[int, int] | None = None) -> np.ndarray:
-    bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-    if bgr is None:
+    # IMREAD_UNCHANGED keeps the alpha channel; IMREAD_COLOR would drop it and turn a
+    # transparent background BLACK (RGB is 0 where alpha is 0). Composite onto WHITE instead.
+    img = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+    if img is None:
         raise IOError(f"Cannot read image: {image_path}")
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    if img.ndim == 3 and img.shape[2] == 4:
+        bgr = img[:, :, :3].astype(np.float32)
+        alpha = img[:, :, 3:4].astype(np.float32) / 255.0
+        img = (bgr * alpha + 255.0 * (1.0 - alpha)).astype(np.uint8)
+    gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if image_size is not None:
         w, h = image_size
         gray = cv2.resize(gray, (w, h), interpolation=cv2.INTER_LANCZOS4)
