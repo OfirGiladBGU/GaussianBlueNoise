@@ -137,13 +137,15 @@ def normalize_points(points: np.ndarray, width: int, height: int, coord_mode: st
     def _near(a: float, b: float, tol: float = 0.08) -> bool:
         return abs(a - b) <= tol
 
-    x_compressed = aspect_w_over_h < 1.0 and _near(x_max, aspect_w_over_h)
-    y_compressed = aspect_h_over_w < 1.0 and _near(y_max, aspect_h_over_w)
-
+    # The GBN solver normalises coordinates by the LONGER image side: x lies in [0, w/h] for a
+    # portrait image, y in [0, h/w] for a landscape one. Always undo that. The previous version
+    # only did so when the extreme point landed within 0.08 of the bound, i.e. it guessed the
+    # convention from the content, and silently left every stipple whose subject stops short of
+    # the far edge squeezed along the short axis.
     if coord_mode in ("aspect", "auto"):
-        if x_compressed and aspect_w_over_h > 0:
+        if aspect_w_over_h < 1.0:
             pts[:, 0] = pts[:, 0] / aspect_w_over_h
-        if y_compressed and aspect_h_over_w > 0:
+        if aspect_h_over_w < 1.0:
             pts[:, 1] = pts[:, 1] / aspect_h_over_w
 
     pts[:, 0] = np.clip(pts[:, 0], 0.0, 1.0)
