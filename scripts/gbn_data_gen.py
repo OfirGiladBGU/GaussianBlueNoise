@@ -5,7 +5,7 @@ Reads images from <data_path>/original/ (or from source/ when there is no origin
 prepares source/ and target/ outputs,
 and writes prompt.json JSONL entries.
 
-Preprocessing lives in image_preprocess.py and is used when --apply_preprocess.
+Preprocessing (ported from GaussianBlueNoise/scripts/image_preprocess.py) is used when --apply_preprocess.
 """
 
 from __future__ import annotations
@@ -27,8 +27,77 @@ REPO_ROOT = SCRIPT_DIR.parent
 GBN_BINARY = REPO_ROOT / "gbn-adaptive-linux"
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
-sys.path.insert(0, str(SCRIPT_DIR))
-from image_preprocess import load_gray, preprocess_image  # noqa: E402
+# --- GBN preprocessing (ported from GaussianBlueNoise/scripts/image_preprocess.py) ---
+def percentile_stretch(gray: np.ndarray, p_low: float = 1.0, p_high: float = 99.0) -> np.ndarray:
+    lo, hi = np.percentile(gray, [p_low, p_high])
+    if hi - lo < 1e-6:
+        return gray.copy()
+    out = (gray.astype(np.float32) - lo) * (255.0 / (hi - lo))
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def apply_clahe(gray: np.ndarray, clip_limit: float = 3.0, tile: int = 8) -> np.ndarray:
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile, tile))
+    return clahe.apply(gray)
+
+
+def unsharp_mask(gray: np.ndarray, sigma: float = 1.4, amount: float = 1.5) -> np.ndarray:
+    blur = cv2.GaussianBlur(gray, (0, 0), sigma)
+    sharp = cv2.addWeighted(
+        gray.astype(np.float32),
+        1.0 + amount,
+        blur.astype(np.float32),
+        -amount,
+        0,
+    )
+    return np.clip(sharp, 0, 255).astype(np.uint8)
+
+
+def suppress_background(gray: np.ndarray) -> np.ndarray:
+    """Push likely background toward white while keeping foreground structure."""
+    g = gray.copy()
+    _, bin_img = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, k, iterations=1)
+    bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, k, iterations=1)
+
+    h, w = bin_img.shape
+    flood = bin_img.copy()
+    flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+    cv2.floodFill(flood, flood_mask, (0, 0), 128)
+
+    bg = flood == 128
+    out = g.astype(np.float32)
+    out[bg] = 0.30 * out[bg] + 0.70 * 255.0
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def preprocess_image(gray: np.ndarray, do_bg_suppression: bool = True) -> np.ndarray:
+    """GBN enhancement: stretch -> CLAHE -> unsharp -> stretch -> optional bg suppress."""
+    x = percentile_stretch(gray, p_low=1.0, p_high=99.0)
+    x = apply_clahe(x, clip_limit=3.0, tile=8)
+    x = unsharp_mask(x, sigma=1.4, amount=1.5)
+    x = percentile_stretch(x, p_low=0.8, p_high=99.2)
+    if do_bg_suppression:
+        x = suppress_background(x)
+    return x
+
+
+def load_gray(image_path: Path, image_size: tuple[int, int] | None = None) -> np.ndarray:
+    # IMREAD_UNCHANGED keeps the alpha channel; IMREAD_COLOR would drop it and turn a
+    # transparent background BLACK (RGB is 0 where alpha is 0). Composite onto WHITE instead.
+    img = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise IOError(f"Cannot read image: {image_path}")
+    if img.ndim == 3 and img.shape[2] == 4:
+        bgr = img[:, :, :3].astype(np.float32)
+        alpha = img[:, :, 3:4].astype(np.float32) / 255.0
+        img = (bgr * alpha + 255.0 * (1.0 - alpha)).astype(np.uint8)
+    gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if image_size is not None:
+        w, h = image_size
+        gray = cv2.resize(gray, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    return gray
 
 
 def write_pgm(gray: np.ndarray, path: Path) -> None:
@@ -70,13 +139,15 @@ def normalize_points(points: np.ndarray, width: int, height: int, coord_mode: st
     def _near(a: float, b: float, tol: float = 0.08) -> bool:
         return abs(a - b) <= tol
 
-    x_compressed = aspect_w_over_h < 1.0 and _near(x_max, aspect_w_over_h)
-    y_compressed = aspect_h_over_w < 1.0 and _near(y_max, aspect_h_over_w)
-
+    # The GBN solver normalises coordinates by the LONGER image side: x lies in [0, w/h] for a
+    # portrait image, y in [0, h/w] for a landscape one. Always undo that. The previous version
+    # only did so when the extreme point landed within 0.08 of the bound, i.e. it guessed the
+    # convention from the content, and silently left every stipple whose subject stops short of
+    # the far edge squeezed along the short axis.
     if coord_mode in ("aspect", "auto"):
-        if x_compressed and aspect_w_over_h > 0:
+        if aspect_w_over_h < 1.0:
             pts[:, 0] = pts[:, 0] / aspect_w_over_h
-        if y_compressed and aspect_h_over_w > 0:
+        if aspect_h_over_w < 1.0:
             pts[:, 1] = pts[:, 1] / aspect_h_over_w
 
     pts[:, 0] = np.clip(pts[:, 0], 0.0, 1.0)
